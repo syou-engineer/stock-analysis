@@ -1,13 +1,14 @@
+// frontend/src/features/calendar/Dashboard.tsx
+
 import React, { useState } from 'react';
 import { Search, TrendingUp, AlertCircle, Loader2, BarChart2, LineChart, ExternalLink, Calendar } from 'lucide-react';
 import { useStockData } from '../../hooks/useStockData';
 import { Background } from '../../components/layout/Background';
 import { FundamentalsTab } from '../fundamentals/FundamentalsTab';
 import { ChartsTab } from '../supply_demand/ChartsTab';
-// ★ 追加: 作成したカレンダータブをインポート
 import { CalendarTab } from '../calendar/CalendarTab'; 
 
-type TabType = 'fundamentals' | 'charts' | 'calendar'; // ★ 'calendar' を追加
+type TabType = 'fundamentals' | 'charts' | 'calendar';
 
 export function Dashboard() {
   const [searchInput, setSearchInput] = useState('6857');
@@ -20,19 +21,27 @@ export function Dashboard() {
     e.preventDefault();
     if (searchInput.trim().length >= 4) {
       setTargetCode(searchInput.trim());
-      // 検索窓から検索された場合は、強制的に詳細分析(チャート)へ遷移させる
       if (activeTab === 'calendar') setActiveTab('charts');
     }
   };
 
-  // ★ 追加: カレンダーで「詳細分析」ボタンが押された時の処理
   const handleSelectFromCalendar = (code: string) => {
-    setSearchInput(code); // 検索窓の表示を更新
-    setTargetCode(code);  // データをフェッチ
-    setActiveTab('charts'); // 詳細分析(チャート)へジャンプ
+    setSearchInput(code);
+    setTargetCode(code);
+    setActiveTab('charts');
   };
 
   const analysis = data?.analysis;
+
+  // フォーマッタ関数 (FundamentalsTabと同じもの)
+  const formatMoney = (val: number | null | undefined) => {
+    if (val === null || val === undefined) return '-';
+    const oku = val / 100000000;
+    if (Math.abs(oku) >= 10000) {
+      return `${(oku / 10000).toFixed(2)}兆円`;
+    }
+    return `${oku.toLocaleString(undefined, { maximumFractionDigits: 1 })}億円`;
+  };
 
   return (
     <div className="relative h-screen w-full text-slate-200 font-sans selection:bg-blue-500/30 overflow-hidden flex flex-col bg-slate-950">
@@ -60,29 +69,46 @@ export function Dashboard() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* ★ カレンダー表示中は現在の個別銘柄情報を非表示にする */}
             {analysis && activeTab !== 'calendar' && (
-              <div className="flex items-center gap-3">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-sm font-extrabold text-white">{analysis.basic.company_name}</h1>
-                  <span className="text-xs text-blue-400 font-mono bg-blue-500/10 px-1.5 py-0.5 rounded">{analysis.basic.code}</span>
-                </div>
+              <div className="flex items-center gap-6">
                 
-                <a 
-                  href={`https://kabutan.jp/stock/?code=${analysis.basic.code}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded transition-colors border border-white/10"
-                  title="株探で企業の事業概要やニュースを確認"
-                >
-                  株探で見る
-                  <ExternalLink size={10} />
-                </a>
+                {/* 企業名・コード・外部リンク */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-baseline gap-2">
+                    <h1 className="text-sm font-extrabold text-white">{analysis.basic.company_name}</h1>
+                    <span className="text-xs text-blue-400 font-mono bg-blue-500/10 px-1.5 py-0.5 rounded">{analysis.basic.code}</span>
+                  </div>
+                  <a 
+                    href={`https://kabutan.jp/stock/?code=${analysis.basic.code}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded transition-colors border border-white/10"
+                  >
+                    株探で見る
+                    <ExternalLink size={10} />
+                  </a>
+                </div>
+
+                {/* ★追加: 主要指標をヘッダーに配置 */}
+                <div className="hidden lg:flex items-center gap-4 border-l border-white/10 pl-6 h-6">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[10px] text-slate-400">時価総額</span>
+                    <span className="text-sm font-bold text-white tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>{formatMoney(analysis.valuation.market_cap)}</span>
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[10px] text-slate-400">予想PER</span>
+                    <span className="text-sm font-bold text-white tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>{analysis.valuation.forward_per?.toFixed(1) || '-'}倍</span>
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[10px] text-slate-400">実績PBR</span>
+                    <span className="text-sm font-bold text-white tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>{analysis.valuation.pbr?.toFixed(2) || '-'}倍</span>
+                  </div>
+                </div>
+
               </div>
             )}
             
             <div className="flex bg-slate-900/60 rounded border border-white/5 p-0.5 ml-2">
-              {/* ★ 追加: 決算カレンダートグル */}
               <button 
                 onClick={() => setActiveTab('calendar')} 
                 className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-all ${activeTab === 'calendar' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:text-white'}`}
@@ -110,7 +136,6 @@ export function Dashboard() {
       </header>
 
       <main className="relative z-10 flex-1 w-full p-2 min-h-0 flex flex-col">
-        {/* ★ 追加: カレンダー表示時は個別銘柄のローディングを隠し、カレンダーを全画面表示 */}
         {activeTab === 'calendar' ? (
           <CalendarTab onSelectStock={handleSelectFromCalendar} />
         ) : (
