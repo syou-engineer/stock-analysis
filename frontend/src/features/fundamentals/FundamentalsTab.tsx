@@ -125,7 +125,6 @@ export function FundamentalsTab({ analysis }: Props) {
 
   const displayData = timeframe === 'annual' ? analysis.history : analysis.quarterly_history;
   
-  // ★ 追加: 株式・株主情報のデータ取得
   const majorList = analysis.major_shareholders || [];
   const reportCross = analysis.cross_shareholdings?.Report || {};
   const specList: any[] = Array.isArray(reportCross.Spec) ? reportCross.Spec : [];
@@ -149,14 +148,10 @@ export function FundamentalsTab({ analysis }: Props) {
   return (
     <div className="h-full w-full overflow-y-auto pr-3 pb-20 custom-scrollbar text-sm bg-slate-950" style={{ fontFamily: '"Noto Sans JP", sans-serif' }}>
       
-      {/* 
-        ★ 修正: 12カラムグリッドを使用し、左側を 7 (3.5 : 3.5)、右側を 5 の比率に設定
-        これにより3分割の見た目を保ちつつ、右側のグラフが広くなります。
-      */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         
         {/* 左・中央カラム: リスト群 (幅 7/12) */}
-        <div className="lg:col-span-7 space-y-8">
+        <div className="xl:col-span-7 space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
             
             {/* ② 利益の質 */}
@@ -226,22 +221,24 @@ export function FundamentalsTab({ analysis }: Props) {
                 <MetricRow label="自己株式比率" value={<Val val={prof.treasury_ratio} suffix=" %" />} hide={prof.treasury_ratio == null} />
                 <MetricRow label="潜在希薄化率" value={<Val val={prof.dilution_rate} suffix=" %" />} hide={prof.dilution_rate == null} />
                 <MetricRow label="BPS / 配当性向" value={<>{typeof act.bps === 'number' ? act.bps.toLocaleString() : '-'}円 <Sub>({prof.payout_ratio?.toFixed(1) || '-'}%)</Sub></>} hide={act.bps == null && prof.payout_ratio == null} />
+                {/* ★追加: 最新実績の配当総額 */}
+                <MetricRow label="配当金総額" value={<span className="font-bold text-slate-100">{formatMoney(act.div_total_ann)}</span>} hide={act.div_total_ann == null} />
               </div>
             </div>
           </div>
         </div>
 
-        {/* 右カラム: グラフ類 (幅 5/12 で左・中央より広め) */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
+        {/* 右側: グラフ類 (幅 5/12) */}
+        <div className="xl:col-span-5 flex flex-col gap-6">
           <div>
             <SectionTitle title="業績トレンド" />
             <div className="border border-slate-700 bg-slate-900 p-2 rounded-sm mb-4">
-               <FundamentalChart data={displayData} />
+              <FundamentalChart data={displayData} />
             </div>
           </div>
           
           <div>
-            <SectionTitle title="ガイダンス・トラッキング (期初予想と修正)" />
+            <SectionTitle title="ガイダンス・トラッキング" />
             <div className="overflow-x-auto custom-scrollbar border border-slate-700 bg-slate-900">
               <table className="w-full text-xs text-right whitespace-nowrap border-collapse">
                 <thead className="bg-slate-800 text-slate-400 font-normal">
@@ -320,10 +317,12 @@ export function FundamentalsTab({ analysis }: Props) {
                 <>
                   <th className="py-2 px-2 font-normal border-b border-slate-700">株式数 <Sub>YoY</Sub></th>
                   <th className="py-2 px-2 font-normal border-b border-slate-700">自己株式数 <Sub>YoY</Sub></th>
-                  <th className="py-2 px-2 font-normal border-b border-slate-700">自己株式比率</th>
+                  {/* ★修正: 自己株式比率を外して、配当関連の2列に変更 */}
                   <th className="py-2 px-2 font-normal border-b border-slate-700">修正EPS</th>
                   <th className="py-2 px-2 font-normal border-b border-slate-700">希薄化DEPS</th>
-                  {timeframe === 'annual' && <th className="py-2 px-2 font-normal border-b border-slate-700">ROE</th>}
+                  <th className="py-2 px-2 font-normal border-b border-slate-700 border-l">配当金総額</th>
+                  <th className="py-2 px-2 font-normal border-b border-slate-700">配当性向</th>
+                  {timeframe === 'annual' && <th className="py-2 px-2 font-normal border-b border-slate-700 border-l">ROE</th>}
                 </>
               )}
             </tr>
@@ -372,10 +371,18 @@ export function FundamentalsTab({ analysis }: Props) {
                         <span className="text-slate-400 font-bold mr-2">{typeof h.tr_shares === 'number' ? `${(h.tr_shares / 10000).toFixed(0)}万株` : '-'}</span>
                         <DiffVal val={h.tr_shares_yoy} suffix="%" threshold={1} />
                       </td>
-                      <td className="py-2 px-2 text-slate-300 font-bold">{typeof h.tr_ratio === 'number' ? `${h.tr_ratio.toFixed(2)}%` : '-'}</td>
                       <td className="py-2 px-2 text-slate-100 font-bold">{typeof h.eps_adjusted === 'number' ? `${h.eps_adjusted.toFixed(1)}円` : '-'}</td>
                       <td className="py-2 px-2 text-slate-500 font-bold">{typeof h.deps_adjusted === 'number' ? `${h.deps_adjusted.toFixed(1)}円` : '-'}</td>
-                      {timeframe === 'annual' && <td className="py-2 px-2 text-slate-300 font-bold">{typeof h.roe_raw === 'number' ? `${h.roe_raw.toFixed(1)}%` : '-'}</td>}
+                      
+                      {/* ★追加: 配当金総額 と 配当性向 */}
+                      <td className="py-2 px-2 text-slate-200 font-bold border-l border-slate-700/50">
+                        {h.div_total_ann != null ? formatMoney(h.div_total_ann) : '-'}
+                      </td>
+                      <td className="py-2 px-2 text-slate-300 font-bold">
+                        {h.payout_ratio_ann != null ? `${h.payout_ratio_ann.toFixed(1)}%` : '-'}
+                      </td>
+
+                      {timeframe === 'annual' && <td className="py-2 px-2 text-slate-300 font-bold border-l border-slate-700/50">{typeof h.roe_raw === 'number' ? `${h.roe_raw.toFixed(1)}%` : '-'}</td>}
                     </>
                   )}
                 </tr>
@@ -384,13 +391,12 @@ export function FundamentalsTab({ analysis }: Props) {
           </tbody>
         </table>
       </div>
-
-      {/* ★ 追加: 大株主、政策保有株式、株式数推移 */}
+      
+      {/* 5. 大株主、政策保有株式 */}
       <div className="mt-8 border-t border-slate-800 pt-6" />
       <SectionTitle title="株式・株主の状況" />
       
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-        {/* 大株主 */}
         <div className="bg-slate-900 border border-slate-700 rounded-md p-4">
           <h4 className="text-xs font-bold text-slate-300 mb-3 border-b border-slate-700/50 pb-2">主要株主構成 (上位10名)</h4>
           {majorList.length > 0 ? (
@@ -425,7 +431,6 @@ export function FundamentalsTab({ analysis }: Props) {
           ) : (<div className="text-xs text-slate-500 p-4 border border-slate-700 bg-slate-900/50">大株主データがありません</div>)}
         </div>
 
-        {/* 政策保有株式 */}
         <div className="bg-slate-900 border border-slate-700 rounded-md p-4">
           <div className="flex justify-between items-end mb-3 border-b border-slate-700/50 pb-2">
             <h4 className="text-xs font-bold text-slate-300">政策保有株式の状況 (保有銘柄)</h4>
@@ -458,46 +463,6 @@ export function FundamentalsTab({ analysis }: Props) {
               </table>
             </div>
           ) : (<div className="text-xs text-slate-500 p-4 border border-slate-700 bg-slate-900/50">開示データがありません</div>)}
-        </div>
-      </div>
-
-      {/* 株式数推移テーブル */}
-      <div className="bg-slate-900 border border-slate-700 rounded-md p-4">
-        <h4 className="text-xs font-bold text-slate-300 mb-3 border-b border-slate-700/50 pb-2">発行済株式数・自己株式の推移 (過去10期)</h4>
-        <div className="overflow-x-auto custom-scrollbar border border-slate-700 rounded-sm">
-          <table className="w-full text-xs text-right whitespace-nowrap border-collapse font-inter">
-            <thead className="bg-slate-800 text-slate-400 sticky top-0 font-noto">
-              <tr>
-                <th className="py-2 px-2 text-left font-normal border-b border-slate-700 border-r">決算期</th>
-                <th className="py-2 px-2 font-normal border-b border-slate-700">発行済株式数 <Sub>YoY</Sub></th>
-                <th className="py-2 px-2 font-normal border-b border-slate-700">自己株式数 <Sub>YoY</Sub></th>
-                <th className="py-2 px-2 font-normal border-b border-slate-700 border-l">自己株式比率</th>
-                <th className="py-2 px-2 font-normal border-b border-slate-700 border-l">修正EPS</th>
-                <th className="py-2 px-2 font-normal border-b border-slate-700">希薄化DEPS</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/50 bg-slate-900/30">
-              {[...displayData].reverse().map((h: any, i) => {
-                const isForecast = h.year.includes('予');
-                return (
-                  <tr key={i} className={`hover:bg-slate-800/80 transition-colors ${isForecast ? 'bg-blue-900/10' : ''}`}>
-                    <td className={`py-2 px-2 text-left font-bold border-r border-slate-700/50 ${isForecast ? 'text-blue-300' : 'text-slate-300'}`}>{h.year}</td>
-                    <td className="py-2 px-2">
-                      <span className="text-slate-300 font-bold mr-2">{typeof h.out_shares === 'number' ? `${(h.out_shares / 10000).toFixed(0)}万株` : '-'}</span>
-                      <DiffVal val={h.out_shares_yoy} suffix="%" reverseColor threshold={1} />
-                    </td>
-                    <td className="py-2 px-2">
-                      <span className="text-slate-400 font-bold mr-2">{typeof h.tr_shares === 'number' ? `${(h.tr_shares / 10000).toFixed(0)}万株` : '-'}</span>
-                      <DiffVal val={h.tr_shares_yoy} suffix="%" threshold={1} />
-                    </td>
-                    <td className="py-2 px-2 text-slate-300 font-bold border-l border-slate-700/50">{typeof h.tr_ratio === 'number' ? `${h.tr_ratio.toFixed(2)}%` : '-'}</td>
-                    <td className="py-2 px-2 text-slate-100 font-bold border-l border-slate-700/50">{typeof h.eps_adjusted === 'number' ? `${h.eps_adjusted.toFixed(1)}円` : '-'}</td>
-                    <td className="py-2 px-2 text-slate-500 font-bold">{typeof h.deps_adjusted === 'number' ? `${h.deps_adjusted.toFixed(1)}円` : '-'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
       </div>
 

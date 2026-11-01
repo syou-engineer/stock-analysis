@@ -7,6 +7,7 @@ import { Background } from '../../components/layout/Background';
 import { FundamentalsTab } from '../fundamentals/FundamentalsTab';
 import { ChartsTab } from '../supply_demand/ChartsTab';
 import { CalendarTab } from '../calendar/CalendarTab'; 
+import { formatMoney } from '../../utils/formatters';
 
 type TabType = 'fundamentals' | 'charts' | 'calendar';
 
@@ -33,23 +34,12 @@ export function Dashboard() {
 
   const analysis = data?.analysis;
 
-  // フォーマッタ関数 (FundamentalsTabと同じもの)
-  const formatMoney = (val: number | null | undefined) => {
-    if (val === null || val === undefined) return '-';
-    const oku = val / 100000000;
-    if (Math.abs(oku) >= 10000) {
-      return `${(oku / 10000).toFixed(2)}兆円`;
-    }
-    return `${oku.toLocaleString(undefined, { maximumFractionDigits: 1 })}億円`;
-  };
-
   return (
     <div className="relative h-screen w-full text-slate-200 font-sans selection:bg-blue-500/30 overflow-hidden flex flex-col bg-slate-950">
       <Background />
 
       <header className="relative z-50 bg-slate-950/80 backdrop-blur-xl border-b border-white/5 shrink-0">
         <div className="w-full px-4 py-2 flex items-center justify-between">
-          
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-white font-bold text-base">
               <TrendingUp className="text-blue-500" size={18} />
@@ -93,7 +83,8 @@ export function Dashboard() {
                 <div className="hidden lg:flex items-center gap-4 border-l border-white/10 pl-6 h-6">
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-[10px] text-slate-400">時価総額</span>
-                    <span className="text-sm font-bold text-white tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>{formatMoney(analysis.valuation.market_cap)}</span>
+                    <span className="text-sm font-bold text-white tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>{formatMoney(analysis.valuation.market_cap ? analysis.valuation.market_cap * 1000000 : null)}</span>
+                    {/* <span className="text-sm font-bold text-white tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>{(analysis.valuation.market_cap)}</span> */}
                   </div>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-[10px] text-slate-400">予想PER</span>

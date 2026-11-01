@@ -18,6 +18,18 @@ export const formatOku = (val: number | null | undefined): string => {
   return `${oku.toLocaleString(undefined, { maximumFractionDigits: 1 })} 億円`;
 };
 
+export const formatMoney = (val: number | null | undefined) => {
+  if (val === null || val === undefined) return '-';
+  const oku = val / 100000000;
+  if (Math.abs(oku) >= 10000) {
+    return `${(oku / 10000).toFixed(1)}兆円`;
+  }
+  if (Math.abs(oku) < 1) {
+    return `${(val / 1000000).toFixed(0)}百万円`;
+  }
+  return `${oku.toLocaleString(undefined, { maximumFractionDigits: 1 })}億円`;
+};
+
 // export const formatMarketCap = (val: number | null | undefined): string => {
 //   if (val === null || val === undefined) return '-';
 //   return formatOku(val * 1_000_000); 

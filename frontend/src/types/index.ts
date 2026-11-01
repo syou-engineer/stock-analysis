@@ -1,3 +1,5 @@
+// frontend/src/types.ts (または該当の型定義ファイル)
+
 export interface StockDataResponse {
   raw: any;
   analysis: StockAnalysis;
@@ -34,6 +36,7 @@ export interface StockAnalysis {
     tr_sh?: number | null;
     avg_sh?: number | null;
     deps_raw?: number | null;
+    div_total_ann?: number | null; // ★ここが追加される
   };
   forecast: Record<string, any>;
   growth: {
@@ -199,6 +202,8 @@ export interface HistoryData {
   tr_shares_yoy?: number | null;
   calc_per?: number | null;
   calc_pbr?: number | null;
+  payout_ratio_ann?: number | null; 
+  div_total_ann?: number | null;
 }
 
 export interface PriceMarginData {
