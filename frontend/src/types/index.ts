@@ -215,6 +215,10 @@ export interface PriceMarginData {
   volume: number | null;
   margin_buy: number | null;
   margin_sell: number | null;
+  margin_buy_chg: number | null;
+  margin_sell_chg: number | null;
+  std_buy_avg_price: number | null;
+  std_sell_avg_price: number | null;
   per?: number | null;
   pbr?: number | null;
   market_cap?: number | null;

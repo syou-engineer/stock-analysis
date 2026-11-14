@@ -88,7 +88,6 @@ def get_latest_forecast_val(fins_list, field_names):
             return v
     return None
 
-
 def calculate_analysis(profile):
     if not isinstance(profile, dict): profile = {}
     info = profile.get("info", {})
@@ -190,7 +189,6 @@ def calculate_analysis(profile):
     odp = to_float(get_field(latest_fin, "OdP", "OrdinaryProfit"))
     np_latest = to_float(get_field(latest_fin, "NP", "ProfitAttributableToOwnersOfParent", "NetIncome"))
 
-    # ★ 修正: 最新実績の配当総額・配当性向をサマリーAPIから取得
     div_total_ann = to_float(get_field(latest_fin, "DivTotalAnn"))
     payout_ratio_ann = to_float(get_field(latest_fin, "PayoutRatioAnn"))
 
@@ -329,13 +327,149 @@ def calculate_analysis(profile):
     pbr = to_float(get_field(valuation, "PBR"))
     mktcap = to_float(get_field(valuation, "MktCap"))
 
-    quotes_desc = sorted([q for q in daily_quotes_asc if to_float(get_field(q, "Close", "C")) is not None], key=lambda x: x.get("Date", ""), reverse=True)
-    latest_c = None
-    if len(quotes_desc) > 0:
-        ldate = quotes_desc[0].get("Date", "")[:10]
-        ladj = get_adjustment_factor_for_date(ldate, adj_map)
-        lraw = to_float(get_field(quotes_desc[0], "Close", "C"))
-        if lraw: latest_c = adjust_per_share_value(lraw, ladj)
+    # =========================================================================
+    # チャート用データ (price_margin_history) の生成
+    # =========================================================================
+    val_dict = {v.get("Date"): v for v in valuation.get("valuation_history", []) if isinstance(v, dict) and "Date" in v}
+    topix_dict = {t.get("Date", "")[:10]: to_float(t.get("C", t.get("Close"))) for t in profile.get("topix_daily", []) if isinstance(t, dict) and "Date" in t}
+    sector_dict = {s.get("Date", "")[:10]: to_float(s.get("C", s.get("Close"))) for s in profile.get("sector_daily", []) if isinstance(s, dict) and "Date" in s}
+
+    margin_interest = profile.get("margin_interest", [])
+    if not isinstance(margin_interest, list): margin_interest = []
+    
+    margin_history = sorted([m for m in margin_interest if isinstance(m, dict) and m.get("Date")], key=lambda x: x.get("Date", ""))
+    
+    margin_dict = {}
+    for i, m in enumerate(margin_history):
+        m_date = m.get("Date", "")[:10]
+        if m_date:
+            buy_vol = to_float(get_field(m, "LongVol", "margin_buy"))
+            sell_vol = to_float(get_field(m, "ShrtVol", "margin_sell"))
+            
+            buy_chg = None
+            sell_chg = None
+            if i > 0:
+                prev_m = margin_history[i-1]
+                prev_buy = to_float(get_field(prev_m, "LongVol", "margin_buy"))
+                prev_sell = to_float(get_field(prev_m, "ShrtVol", "margin_sell"))
+                if buy_vol is not None and prev_buy is not None:
+                    buy_chg = buy_vol - prev_buy
+                if sell_vol is not None and prev_sell is not None:
+                    sell_chg = sell_vol - prev_sell
+                    
+            margin_dict[m_date] = {
+                "buy": buy_vol,
+                "sell": sell_vol,
+                "buy_chg": buy_chg,
+                "sell_chg": sell_chg
+            }
+
+    price_margin_history = []
+    last_topix = None
+    last_sector = None
+    last_margin_buy = None
+    last_margin_sell = None
+    last_margin_buy_chg = None
+    last_margin_sell_chg = None
+    
+    rolling_margin_buy = []
+    rolling_margin_sell = []
+
+    for q in daily_quotes_asc:
+        date_str = q.get("Date", "")[:10]
+        if not date_str: continue
+        
+        adj_f = get_adjustment_factor_for_date(date_str, adj_map)
+
+        adj_c = to_float(get_field(q, "AdjC", "AdjClose", "adj_c", "adj_close"))
+        if adj_c is None:
+            raw_c = to_float(get_field(q, "Close", "C"))
+            if raw_c is None: continue
+            adj_c = adjust_per_share_value(raw_c, adj_f)
+
+        adj_o = to_float(get_field(q, "AdjO", "AdjOpen"))
+        if adj_o is None:
+            raw_o = to_float(get_field(q, "Open", "O"))
+            adj_o = adjust_per_share_value(raw_o, adj_f) if raw_o is not None else adj_c
+            
+        adj_h = to_float(get_field(q, "AdjH", "AdjHigh"))
+        if adj_h is None:
+            raw_h = to_float(get_field(q, "High", "H"))
+            adj_h = adjust_per_share_value(raw_h, adj_f) if raw_h is not None else adj_c
+            
+        adj_l = to_float(get_field(q, "AdjL", "AdjLow"))
+        if adj_l is None:
+            raw_l = to_float(get_field(q, "Low", "L"))
+            adj_l = adjust_per_share_value(raw_l, adj_f) if raw_l is not None else adj_c
+            
+        adj_vo = to_float(get_field(q, "AdjVo", "AdjVolume"))
+        if adj_vo is None:
+            raw_vo = to_float(get_field(q, "Volume", "V"))
+            adj_vo = adjust_share_count(raw_vo, adj_f) if raw_vo is not None else None
+        
+        curr_topix = topix_dict.get(date_str)
+        if curr_topix is not None: last_topix = curr_topix
+            
+        curr_sector = sector_dict.get(date_str)
+        if curr_sector is not None: last_sector = curr_sector
+
+        curr_margin = margin_dict.get(date_str)
+        if curr_margin:
+            last_margin_buy = curr_margin["buy"]
+            last_margin_sell = curr_margin["sell"]
+            last_margin_buy_chg = curr_margin["buy_chg"]
+            last_margin_sell_chg = curr_margin["sell_chg"]
+            
+            if last_margin_buy_chg and last_margin_buy_chg > 0 and adj_c:
+                rolling_margin_buy.append({"vol": last_margin_buy_chg, "price": adj_c})
+            if last_margin_sell_chg and last_margin_sell_chg > 0 and adj_c:
+                rolling_margin_sell.append({"vol": last_margin_sell_chg, "price": adj_c})
+        else:
+            last_margin_buy_chg = None
+            last_margin_sell_chg = None
+
+        std_buy_avg = None
+        if len(rolling_margin_buy) > 0:
+            recent_buys = rolling_margin_buy[-60:]
+            sum_val = sum([b["vol"] * b["price"] for b in recent_buys])
+            sum_vol = sum([b["vol"] for b in recent_buys])
+            if sum_vol > 0:
+                std_buy_avg = sum_val / sum_vol
+                
+        std_sell_avg = None
+        if len(rolling_margin_sell) > 0:
+            recent_sells = rolling_margin_sell[-60:]
+            sum_val = sum([s["vol"] * s["price"] for s in recent_sells])
+            sum_vol = sum([s["vol"] for s in recent_sells])
+            if sum_vol > 0:
+                std_sell_avg = sum_val / sum_vol
+
+        v = val_dict.get(date_str, {})
+        
+        price_margin_history.append({
+            "date": date_str, 
+            "open": adj_o, 
+            "high": adj_h, 
+            "low": adj_l, 
+            "close": adj_c, 
+            "volume": adj_vo,
+            "per": to_float(get_field(v, "FwdPER", "PER")),
+            "pbr": to_float(get_field(v, "PBR")),
+            "market_cap": to_float(get_field(v, "MktCap")),
+            "topix": last_topix,
+            "sector": last_sector,
+            "margin_buy": last_margin_buy,
+            "margin_sell": last_margin_sell,
+            "margin_buy_chg": last_margin_buy_chg,
+            "margin_sell_chg": last_margin_sell_chg,
+            "std_buy_avg_price": std_buy_avg,
+            "std_sell_avg_price": std_sell_avg
+        })
+
+    # =========================================================================
+
+    quotes_desc = list(reversed(price_margin_history))
+    latest_c = quotes_desc[0].get("close") if quotes_desc else None
 
     div_yield = to_float(get_field(valuation, "DividendYield"))
     if div_yield is not None and div_yield < 1.0: 
@@ -371,13 +505,11 @@ def calculate_analysis(profile):
         "dist_high": None, "dist_low": None,
         "short_interest_change": None
     }
-    if latest_c:
+    
+    if latest_c and len(quotes_desc) > 0:
         def get_past_price(days_ago):
             if len(quotes_desc) > days_ago:
-                q = quotes_desc[days_ago]
-                d = q.get("Date", "")[:10]
-                rc = to_float(get_field(q, "Close", "C"))
-                if rc: return adjust_per_share_value(rc, get_adjustment_factor_for_date(d, adj_map))
+                return quotes_desc[days_ago].get("close")
             return None
 
         p25 = get_past_price(25)
@@ -390,11 +522,8 @@ def calculate_analysis(profile):
         
         if len(quotes_desc) >= 25:
             recent_25 = quotes_desc[:25]
-            prices_25 = [adjust_per_share_value(to_float(get_field(q, "Close", "C")), get_adjustment_factor_for_date(q.get("Date", "")[:10], adj_map)) for q in recent_25]
-            volumes_25 = [adjust_share_count(to_float(get_field(q, "Volume", "V")), get_adjustment_factor_for_date(q.get("Date", "")[:10], adj_map)) for q in recent_25]
-            
-            prices_25 = [p for p in prices_25 if p is not None]
-            volumes_25 = [v for v in volumes_25 if v is not None]
+            prices_25 = [q.get("close") for q in recent_25 if q.get("close") is not None]
+            volumes_25 = [q.get("volume") for q in recent_25 if q.get("volume") is not None]
             
             if len(prices_25) > 0:
                 ma25 = sum(prices_25) / len(prices_25)
@@ -404,25 +533,22 @@ def calculate_analysis(profile):
                 vals_25 = [p * v for p, v in zip(prices_25, volumes_25)]
                 momentum["avg_val_25d"] = sum(vals_25) / len(vals_25)
                 
-                latest_vo = adjust_share_count(to_float(get_field(quotes_desc[0], "Volume", "V")), get_adjustment_factor_for_date(quotes_desc[0].get("Date", "")[:10], adj_map))
+                latest_vo = quotes_desc[0].get("volume")
                 avg_vo_25 = sum(volumes_25) / len(volumes_25)
                 if latest_vo and avg_vo_25 > 0:
                     momentum["vol_spike"] = latest_vo / avg_vo_25
 
         if len(quotes_desc) >= 75:
             recent_75 = quotes_desc[:75]
-            prices_75 = [adjust_per_share_value(to_float(get_field(q, "Close", "C")), get_adjustment_factor_for_date(q.get("Date", "")[:10], adj_map)) for q in recent_75]
-            prices_75 = [p for p in prices_75 if p is not None]
+            prices_75 = [q.get("close") for q in recent_75 if q.get("close") is not None]
             if len(prices_75) > 0:
                 ma75 = sum(prices_75) / len(prices_75)
                 momentum["ma75_diff"] = ((latest_c / ma75) - 1) * 100
 
         if len(quotes_desc) > 0:
             recent_250 = quotes_desc[:250]
-            highs = [adjust_per_share_value(to_float(get_field(q, "High", "H", "Close", "C")), get_adjustment_factor_for_date(q.get("Date", "")[:10], adj_map)) for q in recent_250]
-            lows = [adjust_per_share_value(to_float(get_field(q, "Low", "L", "Close", "C")), get_adjustment_factor_for_date(q.get("Date", "")[:10], adj_map)) for q in recent_250]
-            highs = [h for h in highs if h is not None]
-            lows = [l for l in lows if l is not None]
+            highs = [q.get("high") for q in recent_250 if q.get("high") is not None]
+            lows = [q.get("low") for q in recent_250 if q.get("low") is not None]
             
             if highs:
                 highest = max(highs)
@@ -431,23 +557,35 @@ def calculate_analysis(profile):
                 lowest = min(lows)
                 if lowest > 0: momentum["dist_low"] = ((latest_c / lowest) - 1) * 100
 
-    margin_interest = profile.get("margin_interest", [])
-    if not isinstance(margin_interest, list): margin_interest = []
-    margin_history = sorted([m for m in margin_interest if isinstance(m, dict) and m.get("Date")], key=lambda x: x.get("Date", ""))
-    margin_buy_latest = None
+    margin_buy_latest = last_margin_buy
     margin_ratio = None
-    if len(margin_history) > 0:
-        latest_m = margin_history[-1]
-        mb = to_float(get_field(latest_m, "LongVol", "margin_buy"))
-        ms = to_float(get_field(latest_m, "ShrtVol", "margin_sell"))
-        margin_buy_latest = mb
-        if mb is not None and ms and ms > 0: margin_ratio = mb / ms
+    if last_margin_buy is not None and last_margin_sell is not None and last_margin_sell > 0:
+        margin_ratio = last_margin_buy / last_margin_sell
         
-        if len(margin_history) > 1:
-            prev_m = margin_history[-2]
-            p_ms = to_float(get_field(prev_m, "ShrtVol", "margin_sell"))
-            if ms is not None and p_ms is not None:
-                momentum["short_interest_change"] = ms - p_ms 
+    if len(margin_history) > 1:
+        prev_m = margin_history[-2]
+        p_ms = to_float(get_field(prev_m, "ShrtVol", "margin_sell"))
+        if last_margin_sell is not None and p_ms is not None:
+            momentum["short_interest_change"] = last_margin_sell - p_ms 
+
+    stock_perf_1y = None
+    topix_perf_1y = None
+    sector_perf_1y = None
+    if len(price_margin_history) > 250:
+        current_close = price_margin_history[-1].get("close")
+        close_1y_ago = price_margin_history[-250].get("close")
+        if current_close and close_1y_ago:
+            stock_perf_1y = (current_close - close_1y_ago) / close_1y_ago * 100
+            
+        current_topix = price_margin_history[-1].get("topix")
+        topix_1y_ago = price_margin_history[-250].get("topix")
+        if current_topix and topix_1y_ago:
+            topix_perf_1y = (current_topix - topix_1y_ago) / topix_1y_ago * 100
+
+        current_sector = price_margin_history[-1].get("sector")
+        sector_1y_ago = price_margin_history[-250].get("sector")
+        if current_sector and sector_1y_ago:
+            sector_perf_1y = (current_sector - sector_1y_ago) / sector_1y_ago * 100
 
     # ====== 年次（通期）ヒストリーの生成 ======
     history = []
@@ -524,7 +662,6 @@ def calculate_analysis(profile):
                 if bps_adj_hist and bps_adj_hist > 0:
                     calc_pbr = closest_p / bps_adj_hist
                     
-        # ★追加: 履歴の各年度の配当総額と配当性向を抽出
         div_total_hist = to_float(get_field(fy, "DivTotalAnn"))
         payout_ratio_hist = to_float(get_field(fy, "PayoutRatioAnn"))
         
@@ -575,7 +712,7 @@ def calculate_analysis(profile):
                     "op_str": format_jpy(f_op) if f_op is not None else "-", "op_raw": f_op, 
                     "op_yoy": calc_yoy(f_op, fy_latest_op) if is_latest_fy else calc_yoy(f_op, history[-1]["op_raw"]),
                     "odp_str": format_jpy(f_odp) if f_odp is not None else "-", "odp_raw": f_odp, 
-                    "odp_yoy": calc_yoy(f_odp, fy_latest_odp) if is_latest_fy else calc_yoy(f_odp, history[-1]["odp_raw"]),
+                    "odp_yoy": calc_yoy(f_odp, fy_latest_odp) if is_latest_fy else calc_yoy(f_odp, history[-1]["op_raw"]),
                     "np_str": format_jpy(f_np) if f_np is not None else "-", "np_raw": f_np, 
                     "np_yoy": calc_yoy(f_np, fy_np) if is_latest_fy else calc_yoy(f_np, history[-1]["np_raw"]),
                     "op_margin": calc_margin(f_op, f_sales),
@@ -591,7 +728,6 @@ def calculate_analysis(profile):
                 })
 
     # ====== 四半期（Quarterly）ヒストリーの生成 ======
-    
     q_fins = [f for f in actual_fins_sorted if isinstance(f, dict) and f.get("CurPerType") in ["1Q", "2Q", "3Q", "4Q", "5Q", "FY"]]
     
     fy_tree = {}
@@ -742,7 +878,6 @@ def calculate_analysis(profile):
                 if bps_adj_q and bps_adj_q > 0:
                     calc_pbr = closest_p / bps_adj_q
         
-        # ★追加: 四半期配列の配当総額と配当性向を抽出
         div_total_q = to_float(get_field(q_raw, "DivTotalAnn"))
         payout_ratio_q = to_float(get_field(q_raw, "PayoutRatioAnn"))
         
@@ -808,81 +943,6 @@ def calculate_analysis(profile):
                 if p_ratio <= 1.0: p_ratio *= 100
                 diff = ratio - p_ratio
         processed_majors.append({"rank": s.get("Rank") or (idx + 1), "name": name, "ratio": ratio, "diff": diff})
-
-    val_dict = {v.get("Date"): v for v in valuation.get("valuation_history", []) if isinstance(v, dict) and "Date" in v}
-    topix_dict = {t.get("Date", "")[:10]: to_float(t.get("C", t.get("Close"))) for t in profile.get("topix_daily", []) if isinstance(t, dict) and "Date" in t}
-    sector_dict = {s.get("Date", "")[:10]: to_float(s.get("C", s.get("Close"))) for s in profile.get("sector_daily", []) if isinstance(s, dict) and "Date" in s}
-
-    price_margin_history = []
-    last_topix = None
-    last_sector = None
-
-    for q in daily_quotes_asc:
-        date_str = q.get("Date", "")[:10]
-        if not date_str: continue
-        
-        adj_f = get_adjustment_factor_for_date(date_str, adj_map)
-
-        adj_c = to_float(get_field(q, "AdjC", "AdjClose", "adj_c", "adj_close"))
-        if adj_c is None:
-            raw_c = to_float(get_field(q, "Close", "C"))
-            if raw_c is None: continue
-            adj_c = adjust_per_share_value(raw_c, adj_f)
-
-        adj_o = to_float(get_field(q, "AdjO", "AdjOpen"))
-        if adj_o is None:
-            raw_o = to_float(get_field(q, "Open", "O"))
-            adj_o = adjust_per_share_value(raw_o, adj_f) if raw_o is not None else adj_c
-            
-        adj_h = to_float(get_field(q, "AdjH", "AdjHigh"))
-        if adj_h is None:
-            raw_h = to_float(get_field(q, "High", "H"))
-            adj_h = adjust_per_share_value(raw_h, adj_f) if raw_h is not None else adj_c
-            
-        adj_l = to_float(get_field(q, "AdjL", "AdjLow"))
-        if adj_l is None:
-            raw_l = to_float(get_field(q, "Low", "L"))
-            adj_l = adjust_per_share_value(raw_l, adj_f) if raw_l is not None else adj_c
-            
-        adj_vo = to_float(get_field(q, "AdjVo", "AdjVolume"))
-        if adj_vo is None:
-            raw_vo = to_float(get_field(q, "Volume", "V"))
-            adj_vo = adjust_share_count(raw_vo, adj_f) if raw_vo is not None else None
-        
-        v = val_dict.get(date_str, {}) 
-        curr_topix = topix_dict.get(date_str)
-        if curr_topix is not None: last_topix = curr_topix
-            
-        curr_sector = sector_dict.get(date_str)
-        if curr_sector is not None: last_sector = curr_sector
-
-        price_margin_history.append({
-            "date": date_str, "open": adj_o, "high": adj_h, "low": adj_l, "close": adj_c, "volume": adj_vo,
-            "per": to_float(get_field(v, "FwdPER", "PER")),
-            "pbr": to_float(get_field(v, "PBR")),
-            "market_cap": to_float(get_field(v, "MktCap")),
-            "topix": last_topix,
-            "sector": last_sector
-        })
-
-    stock_perf_1y = None
-    topix_perf_1y = None
-    sector_perf_1y = None
-    if len(price_margin_history) > 250:
-        current_close = price_margin_history[-1].get("close")
-        close_1y_ago = price_margin_history[-250].get("close")
-        if current_close and close_1y_ago:
-            stock_perf_1y = (current_close - close_1y_ago) / close_1y_ago * 100
-            
-        current_topix = price_margin_history[-1].get("topix")
-        topix_1y_ago = price_margin_history[-250].get("topix")
-        if current_topix and topix_1y_ago:
-            topix_perf_1y = (current_topix - topix_1y_ago) / topix_1y_ago * 100
-
-        current_sector = price_margin_history[-1].get("sector")
-        sector_1y_ago = price_margin_history[-250].get("sector")
-        if current_sector and sector_1y_ago:
-            sector_perf_1y = (current_sector - sector_1y_ago) / sector_1y_ago * 100
 
     return {
         "basic": { 

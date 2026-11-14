@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import type { StockAnalysis } from '../../types';
 import { FundamentalChart } from './FundamentalChart';
-import { formatVal ,formatOku} from '../../utils/formatters';
+import { formatOku} from '../../utils/formatters';
 
 interface Props { analysis: StockAnalysis; }
 

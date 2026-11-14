@@ -52,8 +52,12 @@ export function ChartsTab({ analysis }: Props) {
     volume: true,
     marginBuy: true,  
     marginSell: true, 
+    marginBuyChg: true,
+    marginSellChg: true,
+    stdBuyAvgPrice: true,
+    stdSellAvgPrice: true,
   });
-
+console.log(layers.stdBuyAvgPrice);
   const eventsMap = useMemo(() => {
     const map = new Map<string, any[]>();
     const largeVolRaw = Array.isArray(analysis.large_volume) ? analysis.large_volume : [];
@@ -214,7 +218,7 @@ export function ChartsTab({ analysis }: Props) {
     let maxPrice = -Infinity;
     
     const targetData = aggregatedData.slice(-60).filter(d => d.std_buy_avg_price || d.std_sell_avg_price);
-    
+        console.log(aggregatedData);
     if (targetData.length === 0) return [];
 
     targetData.forEach(d => {
